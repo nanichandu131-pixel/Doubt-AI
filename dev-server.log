@@ -1,0 +1,19 @@
+
+> ai-doubt-platform@0.1.0 dev
+> next dev
+
+▲ Next.js 16.3.0 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.13:3000
+- Environments: .env.local
+✓ Ready in 8.7s
+✓ Running next.config.ts took 611ms
+
+ GET /login 200 in 1135ms (next.js: 319ms, proxy.ts: 11ms, application-code: 805ms)
+ GET /register 200 in 253ms (next.js: 84ms, proxy.ts: 14ms, application-code: 155ms)
+ GET / 200 in 362ms (next.js: 115ms, proxy.ts: 16ms, application-code: 231ms)
+ GET /auth/callback 307 in 379ms (next.js: 317ms, proxy.ts: 10ms, application-code: 53ms)
+ GET /login 200 in 165ms (next.js: 19ms, proxy.ts: 18ms, application-code: 128ms)
+ GET /register 200 in 112ms (next.js: 12ms, proxy.ts: 11ms, application-code: 89ms)
+ GET /register 200 in 100ms (next.js: 13ms, proxy.ts: 7ms, application-code: 80ms)
+ GET /login 200 in 89ms (next.js: 11ms, proxy.ts: 10ms, application-code: 67ms)

@@ -3,8 +3,21 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/client';
+import { getAuthBaseUrl } from '@/lib/site-url';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import type { AuthError } from '@supabase/supabase-js';
+
+const PROVIDER_DISABLED_MESSAGE =
+  "Google sign-in isn't enabled on the server yet. Please enable the Google provider in your Supabase dashboard (Authentication → Providers) and try again.";
+
+/** Supabase returns 400 validation_failed when the Google provider is disabled on the project. */
+function isProviderDisabled(error: AuthError): boolean {
+  return (
+    error.code === 'validation_failed' ||
+    /provider is not enabled/i.test(error.message)
+  );
+}
 
 function GoogleIcon() {
   return (
@@ -35,17 +48,22 @@ export function GoogleOAuthButton({ redirect }: { redirect?: string }) {
   const handleClick = async () => {
     setLoading(true);
     const supabase = createClient();
-    const siteUrl = window.location.origin;
-    const callbackUrl = new URL('/auth/callback', siteUrl);
+    const callbackUrl = new URL('/auth/callback', getAuthBaseUrl());
     if (redirect) callbackUrl.searchParams.set('redirect', redirect);
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: callbackUrl.toString() },
+      options: {
+        redirectTo: callbackUrl.toString(),
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
+      },
     });
 
     if (error) {
-      toast.error(error.message);
+      toast.error(isProviderDisabled(error) ? PROVIDER_DISABLED_MESSAGE : error.message);
       setLoading(false);
     }
   };

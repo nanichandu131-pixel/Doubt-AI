@@ -15,10 +15,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { GoogleOAuthButton } from './google-oauth-button';
 import { createClient } from '@/lib/supabase/client';
+import { getAuthBaseUrl } from '@/lib/site-url';
 import { registerSchema } from '@/lib/validation/schemas';
 import type { z } from 'zod';
 
 type FormValues = z.infer<typeof registerSchema>;
+
+/** Supabase/GoTrue returns this message when its mailer can't deliver the confirmation email. */
+const CONFIRM_EMAIL_ERROR = /error sending confirmation email/i;
 
 export function RegisterForm() {
   const router = useRouter();
@@ -44,13 +48,17 @@ export function RegisterForm() {
         password: values.password,
         options: {
           data: { full_name: values.fullName },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${getAuthBaseUrl()}/auth/callback`,
         },
       });
 
       if (error) {
-        setSubmitError(error.message);
-        toast.error(error.message);
+        const message =
+          error.status === 500 || CONFIRM_EMAIL_ERROR.test(error.message)
+            ? 'We couldn\u2019t send the confirmation email. Check your Supabase Authentication \u2192 SMTP settings, then try again.'
+            : error.message;
+        setSubmitError(message);
+        toast.error(message);
         return;
       }
 

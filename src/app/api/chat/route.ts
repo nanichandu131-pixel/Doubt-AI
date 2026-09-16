@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getProvider, SYSTEM_PROMPT } from '@/lib/llm/provider';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { chatRequestSchema } from '@/lib/validation/schemas';
+import { getCreatorIntro, getCreatorMode, isCreatorQuestion } from '@/lib/creator';
 import { extractText } from '@/types/chat';
 
 export const maxDuration = 60;
@@ -24,6 +25,22 @@ function extractFilePartsOf(lastMessage: UIMessage): Array<{ type: 'file'; media
       filename: part.filename,
       url: part.url,
     }));
+}
+
+/** Minimal SSE stream matching the AI SDK UI-message transport so `useChat` parses it natively. */
+function creatorStreamResponse(responseMessageId: string, text: string): Response {
+  const textId = `text-${responseMessageId}`;
+  const chunks: unknown[] = [
+    { type: 'start', messageId: responseMessageId },
+    { type: 'text-start', id: textId },
+    { type: 'text-delta', id: textId, delta: text },
+    { type: 'text-end', id: textId },
+    { type: 'finish', finishReason: 'stop' },
+  ];
+  const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
 }
 
 export async function POST(req: Request) {
@@ -109,6 +126,23 @@ export async function POST(req: Request) {
     } else if (insertMessageError) {
       console.error('[api/chat] failed to save user message:', insertMessageError);
       return NextResponse.json({ message: 'Could not save your message' }, { status: 500 });
+    }
+
+    // "About the creator" questions are answered instantly with a curated profile card instead of
+    // the LLM — deterministic, free, and fast. The card itself is rendered client-side from the
+    // preceding user message; only a short lead-in text is streamed here.
+    if (isCreatorQuestion(userText)) {
+      const creatorAnswer = getCreatorIntro(getCreatorMode(userText));
+      const creatorMessageId = crypto.randomUUID();
+      const { error: insertCreatorError } = await supabase
+        .from('messages')
+        .insert({ id: creatorMessageId, conversation_id: conversationId, role: 'assistant', content: creatorAnswer });
+
+      if (insertCreatorError) {
+        console.error('[api/chat] failed to save creator answer:', insertCreatorError);
+      }
+
+      return creatorStreamResponse(creatorMessageId, creatorAnswer);
     }
 
     const modelMessages = await convertToModelMessages(messages);

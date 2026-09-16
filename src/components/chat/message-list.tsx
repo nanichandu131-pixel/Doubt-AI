@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MessageBubble } from './message-bubble';
 import { StreamingIndicator } from './streaming-indicator';
+import { getCreatorMode, isCreatorQuestion } from '@/lib/creator';
 import { extractText, type AppUIMessage } from '@/types/chat';
 
 const SUGGESTIONS = [
@@ -66,16 +67,29 @@ export function MessageList({
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
-        {messages.map((message, index) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            isStreaming={status === 'streaming' && index === messages.length - 1 && message.role === 'assistant'}
-            isBookmarked={bookmarkedIds.has(message.id)}
-            onToggleBookmark={onToggleBookmark}
-            userInitial={userInitial}
-          />
-        ))}
+        {messages.map((message, index) => {
+          const previousUserText =
+            message.role === 'assistant' && index > 0 && messages[index - 1].role === 'user'
+              ? extractText(messages[index - 1])
+              : '';
+          const creatorMode = previousUserText
+            ? isCreatorQuestion(previousUserText)
+              ? getCreatorMode(previousUserText)
+              : null
+            : null;
+
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isStreaming={status === 'streaming' && index === messages.length - 1 && message.role === 'assistant'}
+              isBookmarked={bookmarkedIds.has(message.id)}
+              onToggleBookmark={onToggleBookmark}
+              userInitial={userInitial}
+              creatorMode={creatorMode}
+            />
+          );
+        })}
         {status === 'submitted' && (
           <div className="flex gap-3">
             <Avatar className="h-8 w-8 shrink-0">

@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { MarkdownRenderer } from './markdown-renderer';
 import { StreamingIndicator } from './streaming-indicator';
+import { CreatorCard } from './creator-card';
 import { cn } from '@/lib/utils';
 import { extractText, extractFileParts, type AppUIMessage } from '@/types/chat';
+import type { CreatorCardMode } from '@/lib/creator';
 
 export function MessageBubble({
   message,
@@ -16,12 +18,14 @@ export function MessageBubble({
   isBookmarked,
   onToggleBookmark,
   userInitial,
+  creatorMode = null,
 }: {
   message: AppUIMessage;
   isStreaming: boolean;
   isBookmarked: boolean;
   onToggleBookmark: (messageId: string) => void;
   userInitial: string;
+  creatorMode?: CreatorCardMode | null;
 }) {
   const [pending, setPending] = useState(false);
   const isUser = message.role === 'user';
@@ -75,6 +79,7 @@ export function MessageBubble({
               ))}
             </div>
           )}
+          {creatorMode && !isUser && <CreatorCard mode={creatorMode} />}
           {!isUser && !text && isStreaming ? (
             <StreamingIndicator />
           ) : isUser ? (

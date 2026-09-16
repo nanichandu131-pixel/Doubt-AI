@@ -20,20 +20,29 @@ import type { z } from 'zod';
 
 type FormValues = z.infer<typeof loginSchema>;
 
+/** Query-string error reasons set by the auth callback / middleware, mapped to a friendly hint. */
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  auth_exchange_failed: 'Your confirmation link could not be completed. Please sign in with your email and password.',
+  auth_callback_error: 'Something went wrong while finishing the sign-in. Please try again.',
+  auth_failed: 'The sign-in was not completed. Please try again.',
+  verification_link_expired: 'That verification link has expired. Sign in below — a new confirmation email was triggered.',
+  verification_failed: 'We could not verify that link. Please sign in below.',
+  auth: 'Please sign in to continue.',
+};
+
 export function LoginForm() {
   const router = useRouter();
-  // Read the redirect target from the URL directly instead of `useSearchParams()` —
-  // that hook requires a `Suspense` boundary, and this app's streaming setup was leaving
-  // Suspense-wrapped content stuck in a hidden, never-revealed node. Avoiding the hook
-  // sidesteps the bug entirely. The lazy initializer only sees a real URL on the client;
-  // it's fine that it resolves to the fallback during SSR since this value is never
-  // rendered directly, only used for the post-login redirect.
-  const [redirect] = useState(() =>
-    typeof window === 'undefined' ? '/chat' : new URLSearchParams(window.location.search).get('redirect') || '/chat',
-  );
+  // Read query params directly instead of `useSearchParams()` — that hook requires a
+  // `Suspense` boundary, and this app's streaming setup was leaving Suspense-wrapped
+  // content stuck in a hidden, never-revealed node. Avoiding the hook sidesteps the bug.
+  // The lazy initializer only sees a real URL on the client; it's fine that it resolves to
+  // the fallback during SSR since these values are never rendered directly.
+  const params = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const [redirect] = useState(() => params.get('redirect') || '/chat');
+  const [initialError] = useState(() => AUTH_ERROR_MESSAGES[params.get('error') ?? ''] ?? null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(initialError);
 
   const {
     register,

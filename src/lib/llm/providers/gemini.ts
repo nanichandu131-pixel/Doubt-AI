@@ -7,4 +7,7 @@ export const geminiProvider: LLMProvider = {
   getModel() {
     return google(this.model);
   },
+  getWebSearchTools() {
+    return { google_search: google.tools.googleSearch({}) };
+  },
 };

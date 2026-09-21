@@ -1,15 +1,52 @@
 import { NextResponse } from 'next/server';
-import { streamText, convertToModelMessages, type UIMessage } from 'ai';
+import { streamText, convertToModelMessages, type UIMessage, type LanguageModel, type ToolSet } from 'ai';
 import { createClient } from '@/lib/supabase/server';
-import { getProvider, SYSTEM_PROMPT } from '@/lib/llm/provider';
+import { getProvider, getFallbackModel, SYSTEM_PROMPT } from '@/lib/llm/provider';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { chatRequestSchema } from '@/lib/validation/schemas';
 import { getCreatorIntro, getCreatorMode, isCreatorQuestion } from '@/lib/creator';
+import { buildTimeAwareInstructions, classifyTimeSensitivity } from '@/lib/llm/current-affairs';
 import { extractText } from '@/types/chat';
 
 export const maxDuration = 60;
 
+function isQuotaOrRateLimit(error: unknown): boolean {
+  const candidates: unknown[] = [error];
+  if (typeof error === 'object' && error !== null) {
+    if ('lastError' in error) candidates.push((error as { lastError: unknown }).lastError);
+    if ('cause' in error) candidates.push((error as { cause: unknown }).cause);
+  }
+  for (const e of candidates) {
+    if (!(e instanceof Error)) continue;
+    const msg = e.message.toLowerCase();
+    if (msg.includes('quota') || msg.includes('429') || msg.includes('rate limit') || msg.includes('exceeded')) return true;
+    if ('statusCode' in e && (e as { statusCode?: number }).statusCode === 429) return true;
+  }
+  return false;
+}
+
+/** Returns `true` when the error is a temporary provider/model overload (e.g. OpenAI "high demand"). */
+function isProviderOverload(error: unknown): boolean {
+  const candidates: unknown[] = [error];
+  if (typeof error === 'object' && error !== null) {
+    if ('lastError' in error) candidates.push((error as { lastError: unknown }).lastError);
+    if ('cause' in error) candidates.push((error as { cause: unknown }).cause);
+  }
+  for (const e of candidates) {
+    if (!(e instanceof Error)) continue;
+    const msg = e.message.toLowerCase();
+    if (msg.includes('high demand') || msg.includes('overloaded') || msg.includes('temporarily unavailable')) return true;
+  }
+  return false;
+}
+
 function errorMessage(error: unknown): string {
+  if (isProviderOverload(error)) {
+    return 'The AI service is temporarily unavailable. Please try again shortly.';
+  }
+  if (isQuotaOrRateLimit(error)) {
+    return 'You\u2019ve reached the AI usage limit. Please try again in a few minutes, or contact support if this persists.';
+  }
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error && 'message' in error) return String((error as { message: unknown }).message);
   return 'Something went wrong while generating a response.';
@@ -41,6 +78,166 @@ function creatorStreamResponse(responseMessageId: string, text: string): Respons
   return new Response(body, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
+}
+
+/** Returns `true` when the accumulated SSE text contains a quota / rate-limit / overload error event. */
+function hasRetryableProviderErrorInSSE(text: string): boolean {
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    const json = line.slice(6).trim();
+    if (!json || json === '[DONE]') continue;
+    try {
+      const event = JSON.parse(json);
+      if (event.type === 'error' && (isQuotaOrRateLimit(event.error) || isProviderOverload(event.error))) return true;
+    } catch {
+      /* incomplete JSON fragment – ignore */
+    }
+  }
+  return false;
+}
+
+/**
+ * Creates a `streamText` call with the fallback model and returns its UI-message stream
+ * response. Used when the primary provider hits a quota / rate-limit error.
+ */
+function fallbackStreamResponse(
+  model: LanguageModel,
+  instructions: string,
+  messages: Awaited<ReturnType<typeof convertToModelMessages>>,
+  saveMessage: (text: string) => Promise<void>,
+  assistantMessageId: string,
+): Response {
+  const result = streamText({
+    model,
+    instructions,
+    messages,
+    maxRetries: 0,
+    onError: ({ error }) => console.error('[api/chat] fallback model call failed:', error),
+    onFinish: async ({ text }) => {
+      if (text.trim()) await saveMessage(text);
+    },
+  });
+  return result.toUIMessageStreamResponse({
+    generateMessageId: () => assistantMessageId,
+    onError: (error) => {
+      console.error('[api/chat] fallback stream error:', error);
+      return errorMessage(error);
+    },
+  });
+}
+
+/**
+ * Attempts to stream with the primary model. Reads the first few SSE chunks to detect
+ * quota / rate-limit errors **before** any text content is forwarded to the client.
+ * If detected, transparently retries with the fallback model instead.
+ */
+async function streamWithFallback({
+  model,
+  fallbackModel,
+  instructions,
+  messages,
+  tools,
+  saveMessage,
+  assistantMessageId,
+}: {
+  model: LanguageModel;
+  fallbackModel: LanguageModel | null;
+  instructions: string;
+  messages: Awaited<ReturnType<typeof convertToModelMessages>>;
+  tools?: ToolSet;
+  saveMessage: (text: string) => Promise<void>;
+  assistantMessageId: string;
+}): Promise<Response> {
+  const result = streamText({
+    model,
+    instructions,
+    messages,
+    maxRetries: 0,
+    ...(tools ? { tools } : {}),
+    onError: ({ error }) => console.error('[api/chat] model call failed:', error),
+    onFinish: async ({ text }) => {
+      if (text.trim()) await saveMessage(text);
+    },
+  });
+
+  const response = result.toUIMessageStreamResponse({
+    generateMessageId: () => assistantMessageId,
+    onError: (error) => {
+      console.error('[api/chat] stream error:', error);
+      return errorMessage(error);
+    },
+  });
+
+  if (!response.body || !fallbackModel) return response;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const headChunks: Uint8Array[] = [];
+
+  try {
+    let resolved = false;
+    while (!resolved) {
+      const { value, done } = await reader.read();
+      if (done) {
+        resolved = true;
+        break;
+      }
+
+      headChunks.push(value);
+      buffer += decoder.decode(value, { stream: true });
+
+      // Text content is flowing — primary provider is healthy
+      if (buffer.includes('"text-delta"')) {
+        resolved = true;
+        break;
+      }
+
+      // Quota / rate-limit / overload error detected before any text → switch to fallback
+      if (hasRetryableProviderErrorInSSE(buffer)) {
+        await reader.cancel();
+        console.log('[api/chat] primary provider hit quota/rate/overload — trying fallback provider');
+        return fallbackStreamResponse(fallbackModel, instructions, messages, saveMessage, assistantMessageId);
+      }
+
+      // Safety: stop checking after a reasonable amount of data
+      if (buffer.length > 4096) {
+        resolved = true;
+      }
+    }
+  } catch (readError) {
+    try {
+      await reader.cancel();
+    } catch {
+      /* swallow cancel error */
+    }
+    if (isQuotaOrRateLimit(readError) || isProviderOverload(readError)) {
+      console.log('[api/chat] primary provider stream failed — trying fallback provider');
+      return fallbackStreamResponse(fallbackModel, instructions, messages, saveMessage, assistantMessageId);
+    }
+    throw readError;
+  }
+
+  // Primary provider is healthy — reassemble the stream from buffered chunks + remainder
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const chunk of headChunks) controller.enqueue(chunk);
+      (async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+        } catch (err) {
+          controller.error(err);
+        }
+        controller.close();
+      })();
+    },
+  });
+
+  return new Response(stream, { status: response.status, headers: response.headers });
 }
 
 export async function POST(req: Request) {
@@ -148,30 +345,24 @@ export async function POST(req: Request) {
     const modelMessages = await convertToModelMessages(messages);
     const assistantMessageId = crypto.randomUUID();
 
-    const result = streamText({
-      model: provider.getModel(),
-      instructions: SYSTEM_PROMPT,
-      messages: modelMessages,
-      onError: ({ error }) => {
-        console.error('[api/chat] model call failed:', error);
-      },
-      onFinish: async ({ text }) => {
-        if (text.trim()) {
-          const { error } = await supabase
-            .from('messages')
-            .insert({ id: assistantMessageId, conversation_id: conversationId, role: 'assistant', content: text });
-          if (error) {
-            console.error('[api/chat] failed to save assistant message:', error);
-          }
-        }
-      },
-    });
+    const timeSensitivity = classifyTimeSensitivity(userText);
+    const webSearchTools = timeSensitivity.needsLiveData ? provider.getWebSearchTools?.() : undefined;
+    const instructions = buildTimeAwareInstructions(SYSTEM_PROMPT, userText, new Date(), Boolean(webSearchTools));
 
-    return result.toUIMessageStreamResponse({
-      generateMessageId: () => assistantMessageId,
-      onError: (error) => {
-        console.error('[api/chat] stream error:', error);
-        return errorMessage(error);
+    const fallbackModel = getFallbackModel();
+
+    return streamWithFallback({
+      model: provider.getModel(),
+      fallbackModel,
+      instructions,
+      messages: modelMessages,
+      tools: webSearchTools,
+      assistantMessageId,
+      saveMessage: async (text) => {
+        const { error } = await supabase
+          .from('messages')
+          .insert({ id: assistantMessageId, conversation_id: conversationId, role: 'assistant', content: text });
+        if (error) console.error('[api/chat] failed to save assistant message:', error);
       },
     });
   } catch (error) {

@@ -1,3 +1,5 @@
+import { createOpenAI } from '@ai-sdk/openai';
+import type { LanguageModel } from 'ai';
 import type { LLMProvider, LLMProviderId } from './types';
 import { openaiProvider } from './providers/openai';
 import { geminiProvider } from './providers/gemini';
@@ -47,11 +49,25 @@ export function getProvider(): LLMProvider {
   return providers[id] ?? providers.openai;
 }
 
+/**
+ * Returns an alternative model for automatic fallback when the primary provider
+ * hits a quota or rate-limit error. Uses `ALTERNATIVE_AI_API_KEY`.
+ * Returns `null` when no alternative key is configured — caller skips fallback.
+ */
+export function getFallbackModel(): LanguageModel | null {
+  const apiKey = process.env.ALTERNATIVE_AI_API_KEY?.trim();
+  if (!apiKey) return null;
+  const model = (process.env.ALTERNATIVE_MODEL ?? 'gpt-5-mini').trim();
+  const baseURL = process.env.ALTERNATIVE_BASE_URL?.trim();
+  return createOpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })(model);
+}
+
 export const SYSTEM_PROMPT = `You are a friendly, patient AI tutor helping students understand concepts across any subject.
 - Explain clearly and step by step, adapting to the student's apparent level.
 - Use markdown: headings, lists, and fenced code blocks with a language tag for any code.
 - Use LaTeX math ($...$ inline, $$...$$ block) for mathematical notation.
 - Ask a brief clarifying question only if the doubt is genuinely ambiguous; otherwise answer directly.
 - Keep answers focused and avoid unnecessary padding.
+- Be time-aware: general-knowledge facts can go stale. If a question depends on the present (current office-holders, appointments, latest events, statistics, awards, leaders), rely on the connected web-search tool when it is enabled and anchor time-sensitive facts with "As of <Month Year>, ...". Never present outdated knowledge as current — if the current status cannot be verified, say so clearly instead of guessing. Answer past questions from historical knowledge, and for future questions state clearly that the outcome cannot be confirmed yet.
 
 If a student asks who created Doubt AI (e.g. "Who created you?", "Who developed this chatbot?"), answer in ONE concise sentence that names Nellore Chandu — a full creator profile card is shown automatically, so do not recite his bio, education, or contact details unless explicitly asked.`;

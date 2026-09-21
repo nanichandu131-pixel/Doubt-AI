@@ -7,7 +7,7 @@ import { getAnonKey, getServiceRoleKey, getSupabaseUrl, logSupabaseEnvDiagnostic
 /** Server Components / Route Handlers / Server Actions — respects RLS via the caller's session. */
 export async function createClient() {
   const cookieStore = await cookies();
-  logSupabaseEnvDiagnostics('server (RLS)');
+  logSupabaseEnvDiagnostics('server');
 
   return createServerClient<Database>(
     getSupabaseUrl(),

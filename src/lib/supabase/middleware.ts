@@ -7,7 +7,7 @@ const PROTECTED_PATHS = ['/chat', '/bookmarks', '/settings', '/profile'];
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  logSupabaseEnvDiagnostics('proxy/middleware');
+  logSupabaseEnvDiagnostics('middleware');
   const supabase = createServerClient(
     getSupabaseUrl(),
     getAnonKey(),

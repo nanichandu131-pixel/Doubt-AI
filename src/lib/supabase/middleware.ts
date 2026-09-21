@@ -1,14 +1,16 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { getAnonKey, getSupabaseUrl, logSupabaseEnvDiagnostics } from './env';
 
 const PROTECTED_PATHS = ['/chat', '/bookmarks', '/settings', '/profile'];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  logSupabaseEnvDiagnostics('proxy/middleware');
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    getSupabaseUrl(),
+    getAnonKey(),
     {
       cookies: {
         getAll() {

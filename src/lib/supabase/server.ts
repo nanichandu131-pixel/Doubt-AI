@@ -2,14 +2,16 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database.types';
+import { getAnonKey, getServiceRoleKey, getSupabaseUrl, logSupabaseEnvDiagnostics } from './env';
 
 /** Server Components / Route Handlers / Server Actions — respects RLS via the caller's session. */
 export async function createClient() {
   const cookieStore = await cookies();
+  logSupabaseEnvDiagnostics('server (RLS)');
 
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    getSupabaseUrl(),
+    getAnonKey(),
     {
       cookies: {
         getAll() {
@@ -32,9 +34,10 @@ export async function createClient() {
  * Use only for privileged operations (e.g. account deletion) after verifying the caller's session.
  */
 export function createServiceRoleClient() {
+  logSupabaseEnvDiagnostics('service-role');
   return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    getSupabaseUrl(),
+    getServiceRoleKey(),
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 }

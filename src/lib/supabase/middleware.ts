@@ -5,12 +5,19 @@ import { getAnonKey, getSupabaseUrl, logSupabaseEnvDiagnostics } from './env';
 const PROTECTED_PATHS = ['/chat', '/bookmarks', '/settings', '/profile'];
 
 export async function updateSession(request: NextRequest) {
+  const url = getSupabaseUrl();
+  const anonKey = getAnonKey();
+
+  if (!url || !anonKey) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   logSupabaseEnvDiagnostics('middleware');
   const supabase = createServerClient(
-    getSupabaseUrl(),
-    getAnonKey(),
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {

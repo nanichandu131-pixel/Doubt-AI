@@ -12,6 +12,11 @@ const providers: Record<LLMProviderId, LLMProvider> = {
 };
 
 function normalizeProviderId(value: string | undefined): LLMProviderId {
+  if (!value) {
+    if ((process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY) && !process.env.OPENAI_API_KEY) {
+      return 'gemini';
+    }
+  }
   const normalized = (value ?? 'openai').trim().toLowerCase();
   return normalized === 'google' ? 'gemini' : normalized === 'claude' ? 'anthropic' : normalized === 'openai' || normalized === 'gemini' || normalized === 'anthropic' ? normalized : 'openai';
 }
@@ -30,8 +35,8 @@ function validateRuntimeConfig(id: LLMProviderId): void {
   }
 
   if (id === 'gemini') {
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim()) {
-      throw new Error('Missing GOOGLE_GENERATIVE_AI_API_KEY for LLM_PROVIDER=gemini.');
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() && !process.env.GEMINI_API_KEY?.trim()) {
+      throw new Error('Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY for LLM_PROVIDER=gemini.');
     }
   }
 

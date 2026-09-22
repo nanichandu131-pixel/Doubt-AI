@@ -1,0 +1,6 @@
+{
+  "name": "DoubtAI",
+  "description": "An AI-powered platform where students get instant, step-by-step answers to their doubts.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

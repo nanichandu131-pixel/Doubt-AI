@@ -9,9 +9,12 @@ export async function createClient() {
   const cookieStore = await cookies();
   logSupabaseEnvDiagnostics('server');
 
+  const url = getSupabaseUrl() || 'https://placeholder.supabase.co';
+  const anonKey = getAnonKey() || 'placeholder-anon-key';
+
   return createServerClient<Database>(
-    getSupabaseUrl(),
-    getAnonKey(),
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {
@@ -35,9 +38,12 @@ export async function createClient() {
  */
 export function createServiceRoleClient() {
   logSupabaseEnvDiagnostics('service-role');
+  const url = getSupabaseUrl() || 'https://placeholder.supabase.co';
+  const serviceRoleKey = getServiceRoleKey() || 'placeholder-service-role-key';
+
   return createSupabaseClient<Database>(
-    getSupabaseUrl(),
-    getServiceRoleKey(),
+    url,
+    serviceRoleKey,
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 }

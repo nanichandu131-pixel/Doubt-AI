@@ -42,6 +42,13 @@ export function RegisterForm() {
     setSubmitError(null);
 
     try {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+        const message = 'Supabase is not configured yet. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment settings.';
+        setSubmitError(message);
+        toast.error(message);
+        return;
+      }
+
       const supabase = createClient();
       const { data, error } = await supabase.auth.signUp({
         email: values.email,

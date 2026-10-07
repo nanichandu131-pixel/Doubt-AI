@@ -19,6 +19,7 @@ import {
 import { ThemeToggle } from './theme-toggle';
 import { AppSidebar } from './app-sidebar';
 import { createClient } from '@/lib/supabase/client';
+import { clearSessionIfInvalid } from '@/lib/supabase/auth-session';
 import type { Conversation, Profile } from '@/types/database.types';
 
 function initials(name: string | null, email: string | undefined) {
@@ -47,7 +48,10 @@ export function Navbar({
 
   const handleSignOut = async () => {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    // If the stored session was already dead, signOut reports it but cannot
+    // clear the cookie itself — drop it so the stale cookie is not reused.
+    clearSessionIfInvalid(error);
     router.push('/login');
     router.refresh();
   };

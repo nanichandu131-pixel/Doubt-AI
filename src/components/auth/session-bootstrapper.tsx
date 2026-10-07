@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { clearSessionIfInvalid } from '@/lib/supabase/auth-session';
 
 const PUBLIC_PATHS = ['/', '/login', '/register'];
 
@@ -35,7 +36,16 @@ export function SessionBootstrapper() {
 
     supabase.auth
       .getSession()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          // A dead refresh token can never succeed (stale cookie left by a
+          // previous session, a sign-out in another tab, a revoked session).
+          // Drop the cookie so neither this tab nor the proxy retries it on
+          // every request; transient errors are ignored by the helper so a
+          // reachable-but-failing session is preserved.
+          clearSessionIfInvalid(error);
+          return;
+        }
         if (data.session && PUBLIC_PATHS.includes(pathname)) {
           router.replace('/chat');
         }

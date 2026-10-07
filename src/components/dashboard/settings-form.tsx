@@ -21,6 +21,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { createClient } from '@/lib/supabase/client';
+import { clearSessionIfInvalid } from '@/lib/supabase/auth-session';
 import { cn } from '@/lib/utils';
 
 const THEME_OPTIONS = [
@@ -61,7 +62,10 @@ export function SettingsForm() {
       const res = await fetch('/api/account', { method: 'DELETE' });
       if (!res.ok) throw new Error();
       const supabase = createClient();
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      // A dead stored session makes signOut report an error without clearing
+      // the cookie — drop it so the stale session cannot be reused.
+      clearSessionIfInvalid(error);
       router.push('/login');
     } catch {
       toast.error('Could not delete account');
